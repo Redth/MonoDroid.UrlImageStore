@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using Android.Graphics.Drawables;
 
 namespace MonoDroid.UrlImageStore
@@ -21,36 +22,35 @@ namespace MonoDroid.UrlImageStore
 		readonly static string baseDir;
 		
 		string picDir;
-		
-		
+				
 		LRUCache<TKey, Drawable> cache;
-						
+		//Queue<UrlImageStoreRequest<TKey>> queue;
+
+		LimitedConcurrencyLevelTaskScheduler taskScheduler;
+		TaskFactory taskFactory;
+
 		static UrlImageStore()
 		{
-			baseDir  = Path.Combine (Environment.GetFolderPath (Environment.SpecialFolder.Personal), "..");
-			
-			//opQueue = new NSOperationQueue();
-			//opQueue.MaxConcurrentOperationCount = 4;
+			baseDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal); ;
 		}
 		
-		public static int MaxConcurrentOperationCount
-		{
-			get; //{ return opQueue.MaxConcurrentOperationCount; }
-			set; //{ opQueue.MaxConcurrentOperationCount = value; }
-		}
 		
-		public UrlImageStore(int capacity, string storeName, ProcessImageDelegate processImage)
+		public UrlImageStore(int capacity, string storeName, Drawable defaultImage, ProcessImageDelegate processImage, int maxConcurrency = 4)
 		{
+			//this.queue = new Queue<UrlImageStoreRequest<TKey>>();
 			this.Capacity = capacity;
 			this.StoreName = storeName;
 			this.ProcessImage = processImage;
-			
+			this.DefaultImage = defaultImage;
+			this.taskScheduler = new LimitedConcurrencyLevelTaskScheduler(maxConcurrency);
+			this.taskFactory = new TaskFactory(this.taskScheduler);
+
 			cache = new LRUCache<TKey, Drawable>(capacity);
 			
-			if (!Directory.Exists(Path.Combine(baseDir, "Library/Caches/Pictures/")))
-				Directory.CreateDirectory(Path.Combine(baseDir, "Library/Caches/Pictures/"));
+			if (!Directory.Exists(Path.Combine(baseDir, "Caches/Pictures/")))
+				Directory.CreateDirectory(Path.Combine(baseDir, "Caches/Pictures/"));
 			
-			picDir = Path.Combine(baseDir, "Library/Caches/Pictures/" + storeName);
+			picDir = Path.Combine(baseDir, "Caches/Pictures/" + storeName);
 			
 		}
 		
@@ -137,74 +137,38 @@ namespace MonoDroid.UrlImageStore
 					return img; //Return this image
 				}
 			}
-
-			//At this point the file needs to be downloaded, so queue it up to download
-			//lock (queue)
-		//	{
-		//		queue.Enqueue(new UrlImageStoreRequest<TKey>() { Id = id, Url = url, Notify = notify });
-		//	}
-
-			//If we haven't maxed out our threads we should start another to download the images
-		//	if (threadCount < maxWorkers)
-		//		ThreadPool.QueueUserWorkItem(new WaitCallback(DownloadImagesWorker));
-		
-			//opQueue.AddOperation(new DownloadImageOperation<TKey>(this, id, url, notify));
 			
-			opQueue.AddOperation(delegate {
+			taskFactory.StartNew(() =>
+			{
+				Drawable drawable = null;
+				var itemId = id;
+				var itemUrl = url;
+				var itemNotify = notify;
 
-				string file = picDir + id + ".png";
+				try
+				{
+					var req = System.Net.HttpWebRequest.Create(itemUrl.Trim('\"')) as System.Net.HttpWebRequest;
+					using (var stream = req.GetResponse().GetResponseStream())
+					{
+						drawable = Drawable.CreateFromStream(stream, "");
+					}
+				}
+				catch { }
 
-				var fos = new Java.IO.FileOutputStream(file);
-				fos.Write((new Java.Net.URL(url).OpenStream()).
-			
-				img = this.ProcessImage(img, id);
-			
-				this.AddToCache(id, img);
-			
-				notify.UrlImageUpdated(id);	
+				if (drawable != null)
+				{
+					if (this.ProcessImage != null)
+						drawable = this.ProcessImage(drawable, itemId);
+
+					AddToCache(itemId, drawable);
+
+					if (notify != null)
+						notify.UrlImageUpdated(itemId);
+				}
 			});
 			
-			//Return the default while they wait for the queued download
 			return this.DefaultImage;
 		}
-
-//		void DownloadImagesWorker(object state)
-//		{
-//			threadCount++;
-//
-//			UrlImageStoreRequest<TKey> nextReq = null;
-//			
-//			while ((nextReq = GetNextRequest()) != null)
-//			{
-//				UIImage img = null;
-//
-//				
-//				try { img = UIImage.LoadFromData(NSData.FromUrl(NSUrl.FromString(nextReq.Url))); }
-//				catch (Exception ex) 
-//				{
-//					Console.WriteLine("Failed to Download Image: " + ex.Message + Environment.NewLine + ex.StackTrace);
-//				}
-//				
-//				if (img == null)
-//					continue;
-//
-//				//See if the consumer needs to do any processing to the image
-//				if (this.ProcessImage != null)
-//					img = this.ProcessImage(img, nextReq.Id);
-//					
-//				//Add it to cache
-//				AddToCache(nextReq.Id, img);
-//
-//			
-//				
-//				//Notify the listener waiting for this,
-//				// but do this on the main thread so the user of this class doesn't worry about that
-//				//nsDispatcher.BeginInvokeOnMainThread(delegate { nextReq.Notify.UrlImageUpdated(nextReq.Id); });
-//				nextReq.Notify.UrlImageUpdated(nextReq.Id);
-//			}
-//
-//			threadCount--;
-//		}
 
 		internal void AddToCache(TKey id, Drawable img)
 		{
@@ -216,39 +180,18 @@ namespace MonoDroid.UrlImageStore
 					cache.Add(id, img);
 			}
 			
-		
-			//string file = picDir + id + ".png";
-			
-			//if (!File.Exists(file))
-			//{
-			//    img.w
-			//    //Save it to disk
-			//    NSError err = null;
-			//    try 
-			//    { 
-			//        img.AsPNG().Save(file, false, out err); 
-			//        if (err != null)
-			//            Console.WriteLine(err.Code.ToString() + " - " + err.LocalizedDescription);
-			//    }
-			//    catch (Exception ex) 
-			//    {
-			//        Console.WriteLine(ex.Message + Environment.NewLine + ex.StackTrace);
-			//    }
-			//}
+			string picFile = picDir + id + ".png";
+
+			if (!File.Exists(picFile))
+			{
+				var bmp = ((BitmapDrawable)img).Bitmap;
+
+				using (var fos = System.IO.File.OpenWrite(picFile))
+				{
+					bmp.Compress(Android.Graphics.Bitmap.CompressFormat.Png, 100, fos);
+				}
+			}
 		}
-		
-//		UrlImageStoreRequest<TKey> GetNextRequest()
-//		{
-//			UrlImageStoreRequest<TKey> nextReq = null;
-//
-//			lock (queue)
-//			{
-//				if (queue.Count > 0)
-//					nextReq = queue.Dequeue();
-//			}
-//
-//			return nextReq;
-//		}
 
 		public void ReclaimMemory()
 		{

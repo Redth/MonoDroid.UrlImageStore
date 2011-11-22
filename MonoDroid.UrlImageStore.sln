@@ -3,6 +3,8 @@ Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDroid.UrlImageStore", "MonoDroid.UrlImageStore\MonoDroid.UrlImageStore.csproj", "{1ED6F045-D2FF-4090-8A71-6DE6ADA7492D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MonoDroid.UrlImageStore.Sample", "MonoDroid.UrlImageStore.Sample\MonoDroid.UrlImageStore.Sample.csproj", "{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -13,6 +15,12 @@ Global
 		{1ED6F045-D2FF-4090-8A71-6DE6ADA7492D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1ED6F045-D2FF-4090-8A71-6DE6ADA7492D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1ED6F045-D2FF-4090-8A71-6DE6ADA7492D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
+		{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5C6804D-30C1-4184-9FD4-1DF0A8DED515}.Release|Any CPU.Deploy.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
