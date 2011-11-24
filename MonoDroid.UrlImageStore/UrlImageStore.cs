@@ -98,8 +98,12 @@ namespace MonoDroid.UrlImageStore
 
 			lock (cache)
 			{
-				if (cache.ContainsKey(id))
-					result = cache[id];
+				try
+				{
+					if (cache.ContainsKey(id))
+						result = cache[id];
+				}
+				catch { }
 			}
 
 			return result;
@@ -117,9 +121,13 @@ namespace MonoDroid.UrlImageStore
 		{
 			//First see if the image is in memory cache already and return it if so
 			lock (cache)
-			{		
-				if (cache.ContainsKey(id))
-					return cache[id];
+			{
+				try
+				{
+					if (cache.ContainsKey(id))
+						return cache[id];
+				}
+				catch { }
 			}
 			
 			//Next check for a saved file, and load it into cache and return it if found
