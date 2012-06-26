@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -26,46 +27,79 @@ namespace MonoDroid.UrlImageStore
 		LRUCache<TKey, Drawable> cache;
 		//Queue<UrlImageStoreRequest<TKey>> queue;
 
-		LimitedConcurrencyLevelTaskScheduler taskScheduler;
+		//LimitedConcurrencyLevelTaskScheduler taskScheduler;
 		TaskFactory taskFactory;
+
+		object taskLock = new object();
+		long taskCount = 0;
+		ConcurrentQueue<Action> queuedActions;
 
 		static UrlImageStore()
 		{
+
 			baseDir = Environment.GetFolderPath(Environment.SpecialFolder.Personal); ;
 		}
 		
 		
-		public UrlImageStore(int capacity, string storeName, Drawable defaultImage, ProcessImageDelegate processImage, int maxConcurrency = 4)
+		public UrlImageStore(int capacity, string storeName, Drawable defaultImage, ProcessImageDelegate processImage, int maxConcurrency = 2)
 		{
 			//this.queue = new Queue<UrlImageStoreRequest<TKey>>();
 			this.Capacity = capacity;
 			this.StoreName = storeName;
 			this.ProcessImage = processImage;
 			this.DefaultImage = defaultImage;
-			this.taskScheduler = new LimitedConcurrencyLevelTaskScheduler(maxConcurrency);
-			this.taskFactory = new TaskFactory(this.taskScheduler);
+			this.MaxConcurrency = maxConcurrency;
+			//this.taskScheduler = new LimitedConcurrencyLevelTaskScheduler(maxConcurrency);
+			//this.taskFactory = new TaskFactory(this.taskScheduler);
 
 			cache = new LRUCache<TKey, Drawable>(capacity);
 			
-			if (!Directory.Exists(Path.Combine(baseDir, "Caches/Pictures/")))
-				Directory.CreateDirectory(Path.Combine(baseDir, "Caches/Pictures/"));
+			if (!Directory.Exists(Path.Combine(baseDir, "Caches/Pictures/" + storeName)))
+				Directory.CreateDirectory(Path.Combine(baseDir, "Caches/Pictures/" + storeName));
 			
-			picDir = Path.Combine(baseDir, "Caches/Pictures/" + storeName);
-			
+			picDir = Path.Combine(baseDir, "Caches/Pictures/" + storeName).TrimEnd('/') + "/";
+
+
+
+			queuedActions = new ConcurrentQueue<Action>();
 		}
 		
 		public void DeleteCachedFiles()
 		{
 			string[] files = new string[]{};
 			
-			try { files = Directory.GetFiles(picDir); }
-			catch { }
-			
+			try 
+			{ 
+				files = Directory.GetFiles(picDir); 
+			}
+			catch (Exception ex) 
+			{
+				Console.WriteLine("GETFILES FAILED: " + ex.ToString());
+			}
+
+			if (files == null || files.Length == 0)
+				Console.WriteLine("Found NO Files to delete");
+			else
+				Console.WriteLine("Found Files to Delete: " + files.Length);
+	
 			foreach (string file in files)
 			{
-				try { File.Delete(file); }
-				catch { }
+				try 
+				{
+					Console.WriteLine("Deleting: " + file);
+					File.Delete(file); 
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine("Failed to Delete: " + file + " -> " + ex.ToString());
+				}
 			}
+		}
+
+		public int MaxConcurrency
+		{
+			get;
+			set;
 		}
 
 		public ProcessImageDelegate ProcessImage
@@ -117,7 +151,7 @@ namespace MonoDroid.UrlImageStore
 			}
 		}
 
-		public Drawable RequestImage(TKey id, string url, IUrlImageUpdated<TKey> notify)
+		public Drawable RequestImage(TKey id, string url, Action<TKey> notify) // IUrlImageUpdated<TKey> notify)
 		{
 			//First see if the image is in memory cache already and return it if so
 			lock (cache)
@@ -132,6 +166,7 @@ namespace MonoDroid.UrlImageStore
 			
 			//Next check for a saved file, and load it into cache and return it if found
 			string picFile = picDir + id + ".png";
+
 			if (File.Exists(picFile))
 			{
 				Drawable img = null;
@@ -145,8 +180,9 @@ namespace MonoDroid.UrlImageStore
 					return img; //Return this image
 				}
 			}
-			
-			taskFactory.StartNew(() =>
+
+			//Add the request to the task queue
+			queuedActions.Enqueue(() =>
 			{
 				Drawable drawable = null;
 				var itemId = id;
@@ -171,10 +207,49 @@ namespace MonoDroid.UrlImageStore
 					AddToCache(itemId, drawable);
 
 					if (notify != null)
-						notify.UrlImageUpdated(itemId);
+						notify(itemId);
+					//if (notify != null)
+					//	notify.UrlImageUpdated(itemId);
 				}
 			});
-			
+
+			lock (taskLock)
+			{
+				if (System.Threading.Interlocked.Read(ref taskCount) < MaxConcurrency)
+				{
+					System.Threading.ThreadPool.QueueUserWorkItem((state) => {
+
+						System.Threading.Interlocked.Increment(ref taskCount);
+						//taskCount++;
+
+						try
+						{
+						while (queuedActions.Count > 0)
+						{
+							Action toDo = null;
+
+							if (queuedActions.TryDequeue(out toDo))
+							{
+								if (toDo != null)
+								{
+									try { toDo(); }
+									catch (Exception ex) 
+									{
+										Console.WriteLine("Task Had Exception: " + ex.ToString());
+									}
+								}
+							}
+						}
+						}
+						catch {}
+
+						//taskCount--;
+						System.Threading.Interlocked.Decrement(ref taskCount);
+					});
+
+				}
+			}
+
 			return this.DefaultImage;
 		}
 
